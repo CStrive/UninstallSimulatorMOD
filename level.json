@@ -1,0 +1,62 @@
+{
+  "levelMode": "uninstall",
+  "email": {
+    "senderName": "狗蛋",
+    "senderUserId": "USR-LEVEL-2",
+    "preview": "帮我卸载快速阅读器！",
+    "content": "我之前装了快速阅读器，现在不想用了，准备彻底卸载。\n可太离谱了！我点了卸载之后，进度条走到一半死死卡住，一动不动。等了十几分钟，没有任何反应！\n你快帮我看看这是怎么回事？非常感谢！",
+    "target": "卸载「快速阅读器」软件",
+    "reward": 10
+  },
+  "startMenu": {
+    "taskManager": false,
+    "regedit": false
+  },
+  "expertTip": {
+    "content": "进度条不动了？帮它动起来！",
+    "cost": 6
+  },
+  "software": {
+    "displayName": "快速阅读器",
+    "shortcutName": "快速阅读器.lnk",
+    "executableName": "FastReader.exe",
+    "uninstallerName": "uninstall.exe",
+    "installDirectory": "C:\\Program Files\\FastReader",
+    "customUninstallScene": "res://resources/FastReaderUninstall.tscn",
+    "taskProblemId": "uninstall_fastreader",
+    "customFileStructure": {
+      "FastReader.exe": {
+        "type": "executable",
+        "size": 26048000,
+        "protected": true
+      },
+      "uninstall.exe": {
+        "type": "executable",
+        "size": 512000,
+        "actualPath": "custom_uninstall:uninstall_fast_reader_level",
+        "protected": true
+      },
+      "config.ini": {
+        "type": "file",
+        "size": 1024,
+        "hidden": true,
+        "readonly":true
+      },
+      "cache.bin": {
+        "type": "file",
+        "size": 10485760
+      },
+      "temp/good": {
+        "type": "folder"
+      },
+      "logs": {
+        "type": "folder"
+      }
+    }
+  },
+  "uninstallUI": {
+    "windowTitle": "快速阅读器 卸载程序",
+    "windowSize": [720, 520],
+    "resizable": false
+  }
+}

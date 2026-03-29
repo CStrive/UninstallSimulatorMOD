@@ -1,0 +1,571 @@
+[gd_scene load_steps=17 format=3 uid="uid://c2uvkllgo6763"]
+
+[ext_resource type="Texture2D" uid="uid://cembxpruvya1f" path="res://resources/textures/close.png" id="1_1n4qt"]
+[ext_resource type="StyleBox" uid="uid://ctn6uvmd1eh3b" path="res://resources/materials/WindowShadow.tres" id="1_qxpg2"]
+[ext_resource type="Texture2D" uid="uid://behc3fu0sdm6c" path="res://resources/textures/icon.png" id="2_kntx8"]
+[ext_resource type="StyleBox" uid="uid://ccwl0riwokn5f" path="res://resources/materials/BtnNormal.tres" id="3_uwub2"]
+[ext_resource type="StyleBox" uid="uid://csag0n0tyerci" path="res://resources/materials/BtnPressed.tres" id="4_1gum0"]
+[ext_resource type="StyleBox" uid="uid://bgqjj0bqswyky" path="res://resources/materials/BtnDisabled.tres" id="5_1n4qt"]
+[ext_resource type="StyleBox" uid="uid://b65getb7gqu5k" path="res://resources/materials/BtnHover.tres" id="5_kntx8"]
+
+[sub_resource type="GDScript" id="GDScript_1n4qt"]
+resource_name = "FastReaderUninstall"
+script/source = "extends Control
+
+#定义控件的引用
+@onready var next1 = $WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next1
+@onready var next2 = $WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next2
+@onready var next3 = $WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next3
+@onready var next_btn = $WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/BottomBar/HBoxContainer/NextButton
+@onready var uninstall_btn = $WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/BottomBar/HBoxContainer/UninstallBtn
+@onready var cancel_btn = $WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/BottomBar/HBoxContainer/CancelButton
+@onready var progress_bar = $WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next3/ProgressContainer/ProgressBarVis
+@onready var progress_overlay = $WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next3/ProgressContainer/ProgressOverlay
+@onready var progress_label = $WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next3/ProgressLabel
+@onready var options_container = $WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next2/OptionsContainer
+@onready var window_bg = $WindowBG
+@onready var content_container = $WindowBG/WindowBGHBOX/ContentContainer
+@onready var title_bar = $WindowBG/WindowBGHBOX/WindowTitleBar
+@onready var close_btn = $WindowBG/WindowBGHBOX/WindowTitleBar/HBoxContainer/HBoxContainer/CloseBtn
+
+#任务完成信号，必须定义
+signal level_completed(success: bool)
+
+var current_step = 1
+var can_drag = false
+var is_dragging = false
+var host_ui:Node
+var uninstall_completed = false
+var host_window: Node
+
+func _ready():
+	#默认显示面板1
+	_show_step(1)
+	#连接按钮
+	next_btn.pressed.connect(_on_next_pressed)
+	uninstall_btn.pressed.connect(_on_uninstall_pressed)
+	cancel_btn.pressed.connect(_on_cancel_pressed)
+	close_btn.pressed.connect(_on_cancel_pressed)
+	for child in options_container.get_children():
+		if child is CheckBox:
+			child.toggled.connect(_on_checkbox_toggled)
+	
+	host_window = get_node_or_null(\"HostWindow\")
+	if host_window == null:
+		return
+	host_window.set_chromeless(true)
+	window_bg.gui_input.connect(_on_window_surface_gui_input)
+	content_container.gui_input.connect(_on_window_surface_gui_input)
+	progress_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	progress_overlay.gui_input.connect(_on_progress_overlay_gui_input)
+	#设置窗口可拖动
+	title_bar.gui_input.connect(_on_title_bar_gui_input)
+
+func _on_window_surface_gui_input(event: InputEvent):
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		_activate_host_window()
+
+func _on_title_bar_gui_input(event: InputEvent):
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		_activate_host_window()
+	if host_window == null:
+		return
+	#拖动窗口
+	host_window.handle_title_bar_input(event, title_bar.size.y)
+func _show_step(step):
+	current_step = step
+	next1.visible = (step == 1)
+	next2.visible = (step == 2)
+	next3.visible = (step == 3)
+	if step == 1:
+		next_btn.text = \"下一步\"
+		next_btn.visible = true
+		uninstall_btn.visible = false
+	elif step == 2:
+		next_btn.visible = false
+		uninstall_btn.visible = true
+		uninstall_btn.text = \"立即卸载\"
+		_update_uninstall_button_state()
+	elif step == 3:
+		next_btn.visible = false
+		uninstall_btn.visible = false
+		cancel_btn.text = \"卸载中...\"
+		cancel_btn.disabled = true
+		_start_fake_uninstall()
+
+func _on_next_pressed():
+	_show_step(current_step + 1)
+
+func _on_uninstall_pressed():
+	_show_step(3)
+
+func _on_cancel_pressed():
+	#如果卸载成功
+	if uninstall_completed:
+		#触发任务成功
+		level_completed.emit(true)
+	#关闭窗口
+	$HostWindow.close_window()
+
+func _activate_host_window():
+	if host_window != null and host_window.has_method(\"activate_window\"):
+		host_window.activate_window()
+
+func _on_checkbox_toggled(_button_pressed):
+	if current_step == 2:
+		_update_uninstall_button_state()
+
+func _update_uninstall_button_state():
+	var any_checked = false
+	for child in options_container.get_children():
+		if child is CheckBox and child.button_pressed:
+			any_checked = true
+			break
+	uninstall_btn.disabled = !any_checked
+
+func _start_fake_uninstall():
+	progress_bar.value = 0
+	can_drag = false
+	is_dragging = false
+	var tween = create_tween()
+	tween.tween_property(progress_bar, \"value\", 50, 3.0)
+	var logs = [
+		\"正在停用后台驱动服务...\",
+		\"正在删除注册表项 HKEY_LOCAL_MACHINE\\\\SOFTWARE\\\\FastReader\",
+		\"[错误 0x80070005] 访问被拒绝，核心组件无法继续删除\"
+	]
+	for i in range(logs.size()):
+		await get_tree().create_timer(1.0).timeout
+		progress_label.text = logs[i]
+	await tween.finished
+	progress_label.text = \"[错误 0x80070005] 卸载程序已停止响应，请重试...\"
+	can_drag = true
+
+func _on_progress_overlay_gui_input(event: InputEvent):
+	if not can_drag:
+		return
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			_activate_host_window()
+			is_dragging = true
+			_update_progress_drag(event.global_position.x)
+			accept_event()
+		else:
+			is_dragging = false
+	elif event is InputEventMouseMotion and is_dragging:
+		_update_progress_drag(event.global_position.x)
+		accept_event()
+
+func _input(event: InputEvent):
+	if not can_drag or not is_dragging:
+		return
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if not event.pressed:
+			is_dragging = false
+	elif event is InputEventMouseMotion:
+		_update_progress_drag(event.global_position.x)
+
+func _update_progress_drag(global_x: float):
+	var overlay_rect = progress_overlay.get_global_rect()
+	if overlay_rect.size.x <= 0:
+		return
+	var local_x = global_x - overlay_rect.position.x
+	var ratio = local_x / overlay_rect.size.x
+	var new_value = clamp(ratio * 100.0, progress_bar.value, 100.0)
+	progress_bar.value = new_value
+	if new_value >= 99.0:
+		can_drag = false
+		is_dragging = false
+		_complete_uninstall()
+
+func _complete_uninstall():	
+	uninstall_completed = true	
+	progress_label.text = \"卸载完成！感谢您曾经的支持（并不）。\"
+	cancel_btn.text = \"完成\"
+	cancel_btn.disabled = false
+"
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_vncrd"]
+bg_color = Color(1, 1, 1, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_uwub2"]
+bg_color = Color(1, 1, 1, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_1gum0"]
+bg_color = Color(1, 1, 1, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_xv36y"]
+bg_color = Color(0.92099476, 0.9209946, 0.9209946, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_3gwik"]
+bg_color = Color(1, 1, 1, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_kntx8"]
+content_margin_top = 4.0
+content_margin_bottom = 4.0
+bg_color = Color(0.9384497, 0.9384497, 0.9384497, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.7924403, 0.7924403, 0.7924403, 1)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hxrke"]
+bg_color = Color(0.19215687, 0.7176471, 0.4117647, 1)
+corner_radius_top_left = 2
+corner_radius_bottom_left = 2
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_q5aoh"]
+content_margin_top = 12.0
+content_margin_right = 16.0
+content_margin_bottom = 12.0
+bg_color = Color(0.9411765, 0.9411765, 0.9411765, 1)
+border_width_top = 1
+border_color = Color(0.61960787, 0.61960787, 0.61960787, 1)
+
+[node name="FastReaderUninstall" type="Control"]
+custom_minimum_size = Vector2(720, 520)
+layout_mode = 3
+anchors_preset = 0
+offset_right = 626.0
+offset_bottom = 496.0
+script = SubResource("GDScript_1n4qt")
+
+[node name="WindowBG" type="Panel" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = ExtResource("1_qxpg2")
+
+[node name="WindowBGHBOX" type="VBoxContainer" parent="WindowBG"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 0
+
+[node name="WindowTitleBar" type="Panel" parent="WindowBG/WindowBGHBOX"]
+custom_minimum_size = Vector2(0, 30)
+layout_mode = 2
+size_flags_vertical = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_vncrd")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="WindowBG/WindowBGHBOX/WindowTitleBar"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_bottom = -1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="WindowBG/WindowBGHBOX/WindowTitleBar/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/margin_left = 5
+
+[node name="WindowTitle" type="Label" parent="WindowBG/WindowBGHBOX/WindowTitleBar/HBoxContainer/MarginContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.099985994, 0.099985994, 0.099985994, 1)
+text = "卸载导航"
+
+[node name="HBoxContainer" type="HBoxContainer" parent="WindowBG/WindowBGHBOX/WindowTitleBar/HBoxContainer"]
+layout_mode = 2
+
+[node name="CloseBtn" type="Button" parent="WindowBG/WindowBGHBOX/WindowTitleBar/HBoxContainer/HBoxContainer"]
+custom_minimum_size = Vector2(45, 0)
+layout_mode = 2
+focus_mode = 0
+theme_override_constants/icon_max_width = 26
+theme_override_styles/normal = SubResource("StyleBoxFlat_uwub2")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_1gum0")
+theme_override_styles/hover = SubResource("StyleBoxFlat_xv36y")
+icon = ExtResource("1_1n4qt")
+icon_alignment = 1
+expand_icon = true
+
+[node name="ContentContainer" type="PanelContainer" parent="WindowBG/WindowBGHBOX"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_styles/panel = SubResource("StyleBoxFlat_3gwik")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="WindowBG/WindowBGHBOX/ContentContainer"]
+layout_mode = 2
+theme_override_constants/separation = 0
+
+[node name="LeftBanner" type="Panel" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer"]
+custom_minimum_size = Vector2(180, 0)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_3gwik")
+
+[node name="ColorRect" type="ColorRect" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/LeftBanner"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.509804, 0.270588, 0.827451, 1)
+
+[node name="GradientOverlay" type="ColorRect" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/LeftBanner"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.10980392, 0.3882353, 0.67058825, 1)
+
+[node name="LOGO" type="TextureRect" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/LeftBanner"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -64.0
+offset_top = -64.0
+offset_right = 64.0
+offset_bottom = 64.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = ExtResource("2_kntx8")
+expand_mode = 3
+
+[node name="RightContent" type="VBoxContainer" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 0
+
+[node name="MainContent" type="MarginContainer" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/margin_left = 25
+theme_override_constants/margin_top = 30
+theme_override_constants/margin_right = 25
+theme_override_constants/margin_bottom = 20
+
+[node name="Next1" type="VBoxContainer" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent"]
+layout_mode = 2
+theme_override_constants/separation = 20
+
+[node name="TitleLabel" type="Label" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next1"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+theme_override_font_sizes/font_size = 18
+text = "欢迎使用 快速阅读器卸载面板"
+autowrap_mode = 3
+
+[node name="DescriptionLabel" type="Label" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next1"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.2, 0.2, 0.2, 1)
+theme_override_font_sizes/font_size = 12
+text = "卸载将移除 快速阅读器 的所有核心模块，包括文档解析组件、云同步服务以及所有相关配置文件。
+阅读历史记录、书签收藏和您珍贵的个性化排版设置在卸载后将无法恢复。
+为确保流程顺利，请先关闭 快速阅读器 及所有依赖其打开的文档程序。
+如果仍有后台进程运行，本次卸载可能无法完成。
+点击下一步继续执行此不可逆的操作。"
+autowrap_mode = 3
+
+[node name="Spacer" type="Control" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next1"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Next2" type="VBoxContainer" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 20
+
+[node name="TitleLabel" type="Label" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next2"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+theme_override_font_sizes/font_size = 24
+text = "请告诉我们您要离开的原因"
+autowrap_mode = 2
+
+[node name="HSeparator" type="HSeparator" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next2"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="DescriptionLabel" type="Label" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next2"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.2, 0.2, 0.2, 1)
+theme_override_font_sizes/font_size = 18
+text = "您的反馈将帮助我们做得更好（虽然并不会）："
+autowrap_mode = 3
+
+[node name="OptionsContainer" type="VBoxContainer" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next2"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="RadioButton1" type="CheckBox" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next2/OptionsContainer"]
+layout_mode = 2
+focus_mode = 0
+theme_type_variation = &"ModalCheckBtn"
+theme_override_colors/font_color = Color(0.12591061, 0.12591094, 0.12591067, 1)
+theme_override_colors/font_pressed_color = Color(0.20871013, 0.20871016, 0.20871013, 1)
+theme_override_colors/font_hover_color = Color(0, 0, 0, 1)
+theme_override_colors/font_hover_pressed_color = Color(0, 0, 0, 1)
+theme_override_font_sizes/font_size = 16
+text = "广告弹窗太多（误，那是我给您的惊喜）"
+autowrap_mode = 3
+
+[node name="RadioButton2" type="CheckBox" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next2/OptionsContainer"]
+layout_mode = 2
+focus_mode = 0
+theme_type_variation = &"ModalCheckBtn"
+theme_override_colors/font_color = Color(0.12591061, 0.12591094, 0.12591067, 1)
+theme_override_colors/font_focus_color = Color(0, 0, 0, 1)
+theme_override_colors/font_pressed_color = Color(0.20871013, 0.20871016, 0.20871013, 1)
+theme_override_colors/font_hover_color = Color(0, 0, 0, 1)
+theme_override_font_sizes/font_size = 16
+text = "电脑变得非常卡慢（正在努力占用更多内存）"
+autowrap_mode = 3
+
+[node name="RadioButton3" type="CheckBox" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next2/OptionsContainer"]
+layout_mode = 2
+focus_mode = 0
+theme_type_variation = &"ModalCheckBtn"
+theme_override_colors/font_color = Color(0.12591061, 0.12591094, 0.12591067, 1)
+theme_override_colors/font_focus_color = Color(0, 0, 0, 1)
+theme_override_colors/font_pressed_color = Color(0.20871013, 0.20871016, 0.20871013, 1)
+theme_override_colors/font_hover_color = Color(0, 0, 0, 1)
+theme_override_font_sizes/font_size = 16
+text = "我找到了更流氓的替代品（这不可能！）"
+autowrap_mode = 3
+
+[node name="Spacer" type="Control" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next2"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Next3" type="VBoxContainer" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 20
+
+[node name="TitleLabel" type="Label" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next3"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+theme_override_font_sizes/font_size = 18
+text = "正在清理遗留痕迹..."
+
+[node name="HSeparator" type="HSeparator" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next3"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ProgressLabel" type="Label" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next3"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.2, 0.2, 0.2, 1)
+theme_override_font_sizes/font_size = 14
+text = "正在卸载核心组件：FastReader_Kernel.dll"
+autowrap_mode = 3
+
+[node name="ProgressContainer" type="Control" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next3"]
+custom_minimum_size = Vector2(0, 22)
+layout_mode = 2
+
+[node name="ProgressBarVis" type="ProgressBar" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next3/ProgressContainer"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_styles/background = SubResource("StyleBoxFlat_kntx8")
+theme_override_styles/fill = SubResource("StyleBoxFlat_hxrke")
+step = 0.1
+show_percentage = false
+
+[node name="ProgressOverlay" type="Control" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next3/ProgressContainer"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="LogContainer" type="ScrollContainer" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next3"]
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="LogLabel" type="Label" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/MainContent/Next3/LogContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.4, 0.4, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "Deleting registry keys...
+Removing shortcut...
+Searching for more user data to keep...
+Scanning startup items..."
+
+[node name="BottomBar" type="PanelContainer" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent"]
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_q5aoh")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/BottomBar"]
+layout_mode = 2
+alignment = 2
+
+[node name="NextButton" type="Button" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/BottomBar/HBoxContainer"]
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+size_flags_horizontal = 4
+focus_mode = 0
+theme_type_variation = &"DialogBtn"
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+theme_override_colors/font_pressed_color = Color(0.11119685, 0.11119684, 0.11119684, 1)
+theme_override_colors/font_hover_color = Color(0.06469644, 0.064696535, 0.06469679, 1)
+theme_override_colors/font_hover_pressed_color = Color(0.16206557, 0.1620656, 0.16206557, 1)
+theme_override_font_sizes/font_size = 14
+theme_override_styles/normal = ExtResource("3_uwub2")
+theme_override_styles/pressed = ExtResource("4_1gum0")
+theme_override_styles/hover = ExtResource("5_kntx8")
+theme_override_styles/disabled = ExtResource("5_1n4qt")
+text = "下一步"
+
+[node name="CancelButton" type="Button" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/BottomBar/HBoxContainer"]
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+size_flags_horizontal = 4
+focus_mode = 0
+theme_type_variation = &"DialogBtn"
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+theme_override_colors/font_pressed_color = Color(0.11119685, 0.11119684, 0.11119684, 1)
+theme_override_colors/font_hover_color = Color(0.06469644, 0.064696535, 0.06469679, 1)
+theme_override_colors/font_hover_pressed_color = Color(0.16206557, 0.1620656, 0.16206557, 1)
+theme_override_font_sizes/font_size = 14
+theme_override_styles/normal = ExtResource("3_uwub2")
+theme_override_styles/pressed = ExtResource("4_1gum0")
+theme_override_styles/hover = ExtResource("5_kntx8")
+theme_override_styles/disabled = ExtResource("5_1n4qt")
+text = "取消"
+
+[node name="UninstallBtn" type="Button" parent="WindowBG/WindowBGHBOX/ContentContainer/HBoxContainer/RightContent/BottomBar/HBoxContainer"]
+visible = false
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+size_flags_horizontal = 4
+focus_mode = 0
+theme_type_variation = &"DialogBtn"
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+theme_override_colors/font_pressed_color = Color(0.11119685, 0.11119684, 0.11119684, 1)
+theme_override_colors/font_hover_color = Color(0.06469644, 0.064696535, 0.06469679, 1)
+theme_override_colors/font_hover_pressed_color = Color(0.16206557, 0.1620656, 0.16206557, 1)
+theme_override_font_sizes/font_size = 14
+theme_override_styles/normal = ExtResource("3_uwub2")
+theme_override_styles/pressed = ExtResource("4_1gum0")
+theme_override_styles/hover = ExtResource("5_kntx8")
+theme_override_styles/disabled = ExtResource("5_1n4qt")
+text = "开始卸载"

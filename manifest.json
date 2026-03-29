@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "levelId": "uninstall_fast_reader_level",
+  "name": "卸载快速阅读器",
+  "description": "卸载快速阅读器",
+  "author": "Uninstall Simulator Team",
+  "difficulty": "Easy",
+  "previewImage": "preview.png",
+  "gameVersion": "2.0",
+  "createdAt": "2026-03-24T00:00:00Z",
+  "updatedAt": "2026-03-24T00:00:00Z"
+}
