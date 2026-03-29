@@ -380,6 +380,28 @@ Level配置参考level_json_doc.md
 4. 将resources文件夹(包括内容) + level.json + manifest.json打包为zip,然后将后缀改成 `uslevel` 文件
 5. 在游戏中导入并测试
 6. 检查是否能正确返回桌面
+## 更新MOD
+
+将manifest.json新增
+"workshopFileId": 你的mod Id
+Id可以在创意工坊的mod详情网址能看到id=xxx
+举例：
+```
+{
+  "formatVersion": 1,
+  "levelId": "uninstall_fast_reader_level",
+  "name": "卸载快速阅读器",
+  "workshopFileId": 您的mod Id,
+  "description": "卸载快速阅读器",
+  "author": "Uninstall Simulator Team",
+  "difficulty": "Easy",
+  "previewImage": "preview.png",
+  "gameVersion": "2.0",
+  "createdAt": "2026-03-24T00:00:00Z",
+  "updatedAt": "2026-03-24T00:00:00Z"
+}
+```
+重新打包为uslevel文件,在游戏内上传直接可以更新
 
 ---
 
